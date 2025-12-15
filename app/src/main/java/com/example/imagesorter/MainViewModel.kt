@@ -8,9 +8,11 @@ import com.example.imagesorter.data.ImageGroup
 import com.example.imagesorter.data.ImageRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class MainUiState(
@@ -43,8 +45,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val images = repository.getImagesFromFolder(path, recursive)
-            _uiState.update { it.copy(images = images, isLoading = false) }
+            val imagesFromDisk = withContext(Dispatchers.IO) {
+                repository.getImagesFromFolder(path, recursive)
+            }
+
+            _uiState.update { state ->
+                // Filter out images that are already in groups
+                val groupImagePaths = state.groups.flatMap { group -> group.images.map { it.path } }.toSet()
+                val filteredImages = imagesFromDisk.filter { !groupImagePaths.contains(it.path) }
+
+                state.copy(images = filteredImages, isLoading = false)
+            }
         }
     }
 
@@ -117,11 +128,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
          val group = uiState.value.groups.find { it.id == groupId } ?: return
 
          viewModelScope.launch {
-             val successImages = mutableListOf<ImageFile>()
-             group.images.forEach { image ->
-                 if (repository.moveImageToFolder(image, folderPath)) {
-                     successImages.add(image)
+             val successImages = withContext(Dispatchers.IO) {
+                 val succeeded = mutableListOf<ImageFile>()
+                 group.images.forEach { image ->
+                     if (repository.moveImageToFolder(image, folderPath)) {
+                         succeeded.add(image)
+                     }
                  }
+                 succeeded
              }
 
              // Update group by removing successfully moved images
