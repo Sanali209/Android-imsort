@@ -23,7 +23,11 @@ data class MainUiState(
     val images: List<ImageFile> = emptyList(),
     val groups: List<ImageGroup> = emptyList(),
     val selectedImages: Set<ImageFile> = emptySet(),
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val topSearchQuery: String = "",
+    val bottomSearchQuery: String = "",
+    val isTopPanelVisible: Boolean = true,
+    val isBottomPanelVisible: Boolean = true
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,6 +70,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             storage.saveState(appState)
         }
+    }
+
+    fun updateTopSearchQuery(query: String) {
+        _uiState.update { it.copy(topSearchQuery = query) }
+    }
+
+    fun updateBottomSearchQuery(query: String) {
+        _uiState.update { it.copy(bottomSearchQuery = query) }
+    }
+
+    fun toggleTopPanel() {
+        _uiState.update { it.copy(isTopPanelVisible = !it.isTopPanelVisible) }
+    }
+
+    fun toggleBottomPanel() {
+        _uiState.update { it.copy(isBottomPanelVisible = !it.isBottomPanelVisible) }
     }
 
     fun updatePath(path: String) {

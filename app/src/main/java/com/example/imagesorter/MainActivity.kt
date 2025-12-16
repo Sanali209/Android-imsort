@@ -325,6 +325,20 @@ fun ImageSorterScreen(
                                 showMenu = false
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text(if (uiState.isTopPanelVisible) "Hide Top Panel" else "Show Top Panel") },
+                            onClick = {
+                                viewModel.toggleTopPanel()
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (uiState.isBottomPanelVisible) "Hide Bottom Panel" else "Show Bottom Panel") },
+                            onClick = {
+                                viewModel.toggleBottomPanel()
+                                showMenu = false
+                            }
+                        )
                     }
                 }
             )
@@ -376,101 +390,94 @@ fun ImageSorterScreen(
             }
 
         // Upper Part: Image Viewer (Grid)
-        Box(modifier = Modifier.weight(1f)) {
-            Column {
-                 // Search Bar for Top Image List
-                var topSearchQuery by remember { mutableStateOf("") }
-
-                OutlinedTextField(
-                    value = topSearchQuery,
-                    onValueChange = { topSearchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    placeholder = { Text("Search images...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    trailingIcon = {
-                         if (topSearchQuery.isNotEmpty()) {
-                             IconButton(onClick = { topSearchQuery = "" }) {
-                                 Icon(Icons.Default.Close, contentDescription = "Clear")
-                             }
-                         }
-                    },
-                    singleLine = true
-                )
-
-                val filteredImages = if (topSearchQuery.isBlank()) {
-                    uiState.images
-                } else {
-                    uiState.images.filter { it.name.contains(topSearchQuery, ignoreCase = true) }
-                }
-
-                if (filteredImages.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(if (uiState.images.isEmpty()) "No images found" else "No matching images")
-                    }
-                } else {
-                    ImageGrid(
-                        images = filteredImages,
-                        selectedImages = uiState.selectedImages,
-                        onImageClick = viewModel::toggleImageSelection,
-                        onImageLongClick = onImageLongClick
-                    )
-                }
-            }
-        }
-
-        Divider(thickness = 4.dp, color = MaterialTheme.colorScheme.primary)
-
-        // Lower Part: Groups (Sorter)
-        Box(modifier = Modifier.weight(1f)) {
-            Column {
-                // Search Bar for Filtering
-                var searchQuery by remember { mutableStateOf("") }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+        if (uiState.isTopPanelVisible) {
+            Box(modifier = Modifier.weight(1f)) {
+                Column {
+                     // Search Bar for Top Image List
                     OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Search by name...") },
+                        value = uiState.topSearchQuery,
+                        onValueChange = viewModel::updateTopSearchQuery,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        placeholder = { Text("Search images...") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                         trailingIcon = {
-                             if (searchQuery.isNotEmpty()) {
-                                 IconButton(onClick = { searchQuery = "" }) {
+                             if (uiState.topSearchQuery.isNotEmpty()) {
+                                 IconButton(onClick = { viewModel.updateTopSearchQuery("") }) {
                                      Icon(Icons.Default.Close, contentDescription = "Clear")
                                  }
                              }
                         },
                         singleLine = true
                     )
-                    IconButton(onClick = { showCreateGroupDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Group")
+
+                    val filteredImages = if (uiState.topSearchQuery.isBlank()) {
+                        uiState.images
+                    } else {
+                        uiState.images.filter { it.name.contains(uiState.topSearchQuery, ignoreCase = true) }
+                    }
+
+                    if (filteredImages.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(if (uiState.images.isEmpty()) "No images found" else "No matching images")
+                        }
+                    } else {
+                        ImageGrid(
+                            images = filteredImages,
+                            selectedImages = uiState.selectedImages,
+                            onImageClick = viewModel::toggleImageSelection,
+                            onImageLongClick = onImageLongClick
+                        )
                     }
                 }
+            }
+        }
 
-                // Filter logic handled in UI for simplicity, or move to ViewModel if strict MVVM needed.
-                // Given the requirement "ensure posible return unfiltered list", clearing query does that.
-                val filteredGroups = if (searchQuery.isBlank()) {
-                    uiState.groups
-                } else {
-                    uiState.groups.mapNotNull { group ->
-                        // Filter images inside group? Or filter groups by image name?
-                        // "add in grouping view add search filters posible filter all shown list bay part of file name"
-                        // This implies we filter the IMAGES in the list.
-                        val matchingImages = group.images.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        if (uiState.isTopPanelVisible && uiState.isBottomPanelVisible) {
+            Divider(thickness = 4.dp, color = MaterialTheme.colorScheme.primary)
+        }
+
+        // Lower Part: Groups (Sorter)
+        if (uiState.isBottomPanelVisible) {
+            Box(modifier = Modifier.weight(1f)) {
+                Column {
+                    // Search Bar for Filtering
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = uiState.bottomSearchQuery,
+                            onValueChange = viewModel::updateBottomSearchQuery,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Search by name...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                            trailingIcon = {
+                                 if (uiState.bottomSearchQuery.isNotEmpty()) {
+                                     IconButton(onClick = { viewModel.updateBottomSearchQuery("") }) {
+                                         Icon(Icons.Default.Close, contentDescription = "Clear")
+                                     }
+                                 }
+                            },
+                            singleLine = true
+                        )
+                        IconButton(onClick = { showCreateGroupDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Group")
+                        }
+                    }
+
+                    // Filter logic
+                    val filteredGroups = if (uiState.bottomSearchQuery.isBlank()) {
+                        uiState.groups
+                    } else {
+                        uiState.groups.mapNotNull { group ->
+                        val matchingImages = group.images.filter { it.name.contains(uiState.bottomSearchQuery, ignoreCase = true) }
                         if (matchingImages.isNotEmpty()) {
                             group.copy(images = matchingImages)
                         } else {
-                            // If no images match, should we hide the group?
-                            // Or keep group if group name matches?
-                            // Let's assume filter images. If group is empty after filter, maybe hide it?
-                            // Let's keep it simple: Show group if it has matching images.
                             null
                         }
                     }
