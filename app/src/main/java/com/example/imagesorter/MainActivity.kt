@@ -32,8 +32,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -140,10 +143,16 @@ fun PermissionWrapper(content: @Composable () -> Unit) {
 fun MainScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Simple state to control which screen is visible, for simplicity using boolean
+    // Simple state to control which screen is visible
     var showFolderSelection by remember { mutableStateOf(true) }
+    var fullScreenImage by remember { mutableStateOf<ImageFile?>(null) }
 
-    if (showFolderSelection) {
+    if (fullScreenImage != null) {
+        FullScreenImageScreen(
+            image = fullScreenImage!!,
+            onBack = { fullScreenImage = null }
+        )
+    } else if (showFolderSelection) {
         FolderSelectionScreen(
             currentPath = uiState.currentPath,
             recursiveSearch = uiState.recursiveSearch,
@@ -158,8 +167,44 @@ fun MainScreen(viewModel: MainViewModel) {
         ImageSorterScreen(
             uiState = uiState,
             onBackClick = { showFolderSelection = true },
-            viewModel = viewModel
+            viewModel = viewModel,
+            onImageLongClick = { image -> fullScreenImage = image }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullScreenImageScreen(
+    image: ImageFile,
+    onBack: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(image.name) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(image.uri),
+                contentDescription = image.name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
@@ -226,7 +271,8 @@ fun FolderSelectionScreen(
 fun ImageSorterScreen(
     uiState: MainUiState,
     onBackClick: () -> Unit,
-    viewModel: MainViewModel
+    viewModel: MainViewModel,
+    onImageLongClick: (ImageFile) -> Unit
 ) {
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var showMoveToFolderDialog by remember { mutableStateOf<String?>(null) } // GroupId
@@ -339,7 +385,8 @@ fun ImageSorterScreen(
                 ImageGrid(
                     images = uiState.images,
                     selectedImages = uiState.selectedImages,
-                    onImageClick = viewModel::toggleImageSelection
+                    onImageClick = viewModel::toggleImageSelection,
+                    onImageLongClick = onImageLongClick
                 )
             }
         }
@@ -349,31 +396,68 @@ fun ImageSorterScreen(
         // Lower Part: Groups (Sorter)
         Box(modifier = Modifier.weight(1f)) {
             Column {
+                // Search Bar for Filtering
+                var searchQuery by remember { mutableStateOf("") }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Groups", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Search by name...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                        trailingIcon = {
+                             if (searchQuery.isNotEmpty()) {
+                                 IconButton(onClick = { searchQuery = "" }) {
+                                     Icon(Icons.Default.Close, contentDescription = "Clear")
+                                 }
+                             }
+                        },
+                        singleLine = true
+                    )
                     IconButton(onClick = { showCreateGroupDialog = true }) {
                         Icon(Icons.Default.Add, contentDescription = "Add Group")
                     }
                 }
 
+                // Filter logic handled in UI for simplicity, or move to ViewModel if strict MVVM needed.
+                // Given the requirement "ensure posible return unfiltered list", clearing query does that.
+                val filteredGroups = if (searchQuery.isBlank()) {
+                    uiState.groups
+                } else {
+                    uiState.groups.mapNotNull { group ->
+                        // Filter images inside group? Or filter groups by image name?
+                        // "add in grouping view add search filters posible filter all shown list bay part of file name"
+                        // This implies we filter the IMAGES in the list.
+                        val matchingImages = group.images.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                        if (matchingImages.isNotEmpty()) {
+                            group.copy(images = matchingImages)
+                        } else {
+                            // If no images match, should we hide the group?
+                            // Or keep group if group name matches?
+                            // Let's assume filter images. If group is empty after filter, maybe hide it?
+                            // Let's keep it simple: Show group if it has matching images.
+                            null
+                        }
+                    }
+                }
+
                 GroupList(
-                    groups = uiState.groups,
+                    groups = filteredGroups,
                     allGroups = uiState.groups,
                     onRenameGroup = { id, name -> showRenameGroupDialog = id to name },
                     onDeleteGroup = viewModel::deleteGroup,
                     onMoveToFolder = { id ->
                         showMoveToFolderDialog = id
-                        // Launch picker immediately for improved UX if using picker
-                        // But wait, the dialog logic below handles manual entry if we wanted.
-                        // Since we want picker now:
                         folderPickerLauncher.launch(null)
                     },
-                    onMoveImageToGroup = viewModel::moveImageBetweenGroups
+                    onMoveImageToGroup = viewModel::moveImageBetweenGroups,
+                    onImageLongClick = onImageLongClick
                 )
             }
         }
@@ -422,7 +506,8 @@ fun ImageSorterScreen(
 fun ImageGrid(
     images: List<ImageFile>,
     selectedImages: Set<ImageFile>,
-    onImageClick: (ImageFile) -> Unit
+    onImageClick: (ImageFile) -> Unit,
+    onImageLongClick: (ImageFile) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 100.dp),
@@ -432,7 +517,8 @@ fun ImageGrid(
             ImageItem(
                 image = image,
                 isSelected = selectedImages.contains(image),
-                onClick = { onImageClick(image) }
+                onClick = { onImageClick(image) },
+                onLongClick = { onImageLongClick(image) }
             )
         }
     }
@@ -443,7 +529,8 @@ fun ImageGrid(
 fun ImageItem(
     image: ImageFile,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -453,7 +540,10 @@ fun ImageItem(
                 width = if (isSelected) 4.dp else 0.dp,
                 color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
             )
-            .combinedClickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Image(
             painter = rememberAsyncImagePainter(image.uri),
@@ -481,7 +571,8 @@ fun GroupList(
     onRenameGroup: (String, String) -> Unit,
     onDeleteGroup: (String) -> Unit,
     onMoveToFolder: (String) -> Unit,
-    onMoveImageToGroup: (ImageFile, String, String) -> Unit
+    onMoveImageToGroup: (ImageFile, String, String) -> Unit,
+    onImageLongClick: (ImageFile) -> Unit
 ) {
     LazyColumn {
         items(groups) { group ->
@@ -491,7 +582,8 @@ fun GroupList(
                 onRename = { onRenameGroup(group.id, group.name) },
                 onDelete = { onDeleteGroup(group.id) },
                 onMoveToFolder = { onMoveToFolder(group.id) },
-                onMoveImageToGroup = onMoveImageToGroup
+                onMoveImageToGroup = onMoveImageToGroup,
+                onImageLongClick = onImageLongClick
             )
         }
     }
@@ -505,7 +597,8 @@ fun GroupItem(
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onMoveToFolder: () -> Unit,
-    onMoveImageToGroup: (ImageFile, String, String) -> Unit
+    onMoveImageToGroup: (ImageFile, String, String) -> Unit,
+    onImageLongClick: (ImageFile) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -550,7 +643,10 @@ fun GroupItem(
                             .size(100.dp)
                             .aspectRatio(1f)
                             .combinedClickable(
-                                onClick = {},
+                                onClick = {
+                                    // Maybe click does nothing or also open menu?
+                                    // For now, let's keep click empty or select if needed.
+                                },
                                 onLongClick = { showMenu = true }
                             )
                     ) {
@@ -565,6 +661,14 @@ fun GroupItem(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("View Full Screen") },
+                                onClick = {
+                                    onImageLongClick(image)
+                                    showMenu = false
+                                }
+                            )
+                            Divider()
                             allGroups.filter { it.id != group.id }.forEach { targetGroup ->
                                 DropdownMenuItem(
                                     text = { Text("Move to ${targetGroup.name}") },
