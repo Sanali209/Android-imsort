@@ -169,6 +169,16 @@ fun FolderSelectionScreen(
     onRecursiveChange: (Boolean) -> Unit,
     onSearchClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            val path = FileUtils.getPathFromUri(context, it)
+            onPathChange(path)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -176,12 +186,22 @@ fun FolderSelectionScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        OutlinedTextField(
-            value = currentPath,
-            onValueChange = onPathChange,
-            label = { Text("Folder Path") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = currentPath,
+                onValueChange = onPathChange,
+                label = { Text("Folder Path") },
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = { launcher.launch(null) }) {
+                Icon(Icons.Default.Folder, contentDescription = "Select Folder")
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically
