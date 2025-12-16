@@ -5,7 +5,6 @@ import com.example.imagesorter.data.ImageFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito.mock
 
 class MainViewModelTest {
 
