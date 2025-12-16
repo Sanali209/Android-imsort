@@ -377,17 +377,46 @@ fun ImageSorterScreen(
 
         // Upper Part: Image Viewer (Grid)
         Box(modifier = Modifier.weight(1f)) {
-            if (uiState.images.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No images found")
-                }
-            } else {
-                ImageGrid(
-                    images = uiState.images,
-                    selectedImages = uiState.selectedImages,
-                    onImageClick = viewModel::toggleImageSelection,
-                    onImageLongClick = onImageLongClick
+            Column {
+                 // Search Bar for Top Image List
+                var topSearchQuery by remember { mutableStateOf("") }
+
+                OutlinedTextField(
+                    value = topSearchQuery,
+                    onValueChange = { topSearchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    placeholder = { Text("Search images...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    trailingIcon = {
+                         if (topSearchQuery.isNotEmpty()) {
+                             IconButton(onClick = { topSearchQuery = "" }) {
+                                 Icon(Icons.Default.Close, contentDescription = "Clear")
+                             }
+                         }
+                    },
+                    singleLine = true
                 )
+
+                val filteredImages = if (topSearchQuery.isBlank()) {
+                    uiState.images
+                } else {
+                    uiState.images.filter { it.name.contains(topSearchQuery, ignoreCase = true) }
+                }
+
+                if (filteredImages.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(if (uiState.images.isEmpty()) "No images found" else "No matching images")
+                    }
+                } else {
+                    ImageGrid(
+                        images = filteredImages,
+                        selectedImages = uiState.selectedImages,
+                        onImageClick = viewModel::toggleImageSelection,
+                        onImageLongClick = onImageLongClick
+                    )
+                }
             }
         }
 
