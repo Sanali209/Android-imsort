@@ -3,9 +3,11 @@ package com.example.imagesorter
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.imagesorter.data.AppState
 import com.example.imagesorter.data.ImageFile
 import com.example.imagesorter.data.ImageGroup
 import com.example.imagesorter.data.ImageRepository
+import com.example.imagesorter.data.PersistentStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Dispatchers
@@ -27,15 +29,53 @@ data class MainUiState(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ImageRepository(application)
+    private val storage = PersistentStorage(application)
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
+    init {
+        loadState()
+    }
+
+    private fun loadState() {
+        viewModelScope.launch {
+            val savedState = withContext(Dispatchers.IO) { storage.loadState() }
+            if (savedState != null) {
+                _uiState.update {
+                    it.copy(
+                        currentPath = savedState.currentPath,
+                        recursiveSearch = savedState.recursiveSearch,
+                        groups = savedState.groups
+                    )
+                }
+                // Optionally auto-scan if path exists
+                if (savedState.currentPath.isNotBlank()) {
+                    scanImages()
+                }
+            }
+        }
+    }
+
+    private fun saveState() {
+        val currentState = uiState.value
+        val appState = AppState(
+            currentPath = currentState.currentPath,
+            recursiveSearch = currentState.recursiveSearch,
+            groups = currentState.groups
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            storage.saveState(appState)
+        }
+    }
+
     fun updatePath(path: String) {
         _uiState.update { it.copy(currentPath = path) }
+        saveState()
     }
 
     fun toggleRecursiveSearch(enabled: Boolean) {
         _uiState.update { it.copy(recursiveSearch = enabled) }
+        saveState()
     }
 
     fun scanImages() {
@@ -62,15 +102,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addGroup(name: String) {
         val newGroup = ImageGroup(name = name)
         _uiState.update { it.copy(groups = it.groups + newGroup) }
+        saveState()
     }
 
     fun deleteGroup(groupId: String) {
         // When deleting a group, move images back to the viewer?
-        // The spec says: "при удалении изображение перемещается назад в просмотрщик"
-        // Since images in groups are just logical grouping in this UI until moved physically?
-        // Wait, the spec says "lower part sorter ... group has move button ... move to folder".
-        // This implies images in groups are removed from the main viewer.
-
         val group = uiState.value.groups.find { it.id == groupId }
         if (group != null) {
             _uiState.update { state ->
@@ -79,6 +115,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     images = state.images + group.images
                 )
             }
+            saveState()
         }
     }
 
@@ -88,6 +125,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (it.id == groupId) it.copy(name = newName) else it
             })
         }
+        saveState()
     }
 
     fun toggleImageSelection(image: ImageFile) {
@@ -122,6 +160,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectedImages = emptySet()
             )
         }
+        saveState()
+    }
+
+    fun moveImageBetweenGroups(image: ImageFile, fromGroupId: String, toGroupId: String) {
+        _uiState.update { state ->
+            // Remove from source group
+            val updatedGroups = state.groups.map { group ->
+                when (group.id) {
+                    fromGroupId -> group.copy(images = group.images.filter { it != image })
+                    toGroupId -> group.copy(images = group.images + image)
+                    else -> group
+                }
+            }
+            state.copy(groups = updatedGroups)
+        }
+        saveState()
+    }
+
+    fun clearImageList() {
+        _uiState.update { it.copy(images = emptyList(), selectedImages = emptySet()) }
     }
 
     fun moveGroupImagesToFolder(groupId: String, folderPath: String) {
@@ -149,6 +207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                  }
                  state.copy(groups = updatedGroups)
              }
+             saveState()
          }
     }
 }

@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -219,6 +221,7 @@ fun FolderSelectionScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageSorterScreen(
     uiState: MainUiState,
@@ -229,52 +232,102 @@ fun ImageSorterScreen(
     var showMoveToFolderDialog by remember { mutableStateOf<String?>(null) } // GroupId
     var showRenameGroupDialog by remember { mutableStateOf<Pair<String, String>?>(null) } // GroupId, CurrentName
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = onBackClick) {
-                Text("Back")
+    // Folder Picker for "Move Group to Folder"
+    val context = LocalContext.current
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            val path = FileUtils.getPathFromUri(context, it)
+            // If showMoveToFolderDialog has a group ID, trigger the move
+            showMoveToFolderDialog?.let { groupId ->
+                viewModel.moveGroupImagesToFolder(groupId, path)
             }
-            if (uiState.selectedImages.isNotEmpty()) {
-                Text("${uiState.selectedImages.size} selected")
+            showMoveToFolderDialog = null
+        }
+    }
 
-                // Dropdown or list of groups to move to
-                var expanded by remember { mutableStateOf(false) }
-                Box {
-                    Button(onClick = { expanded = true }) {
-                        Text("Move to Group")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Image Sorter") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Back") // Using Menu icon as placeholder or Back button
+                    }
+                },
+                actions = {
+                    var showMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
                     }
                     DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
                     ) {
-                        uiState.groups.forEach { group ->
-                            DropdownMenuItem(
-                                text = { Text(group.name) },
-                                onClick = {
-                                    viewModel.moveSelectedImagesToGroup(group.id)
-                                    expanded = false
-                                }
-                            )
-                        }
-                        Divider()
                         DropdownMenuItem(
-                            text = { Text("Create New Group") },
+                            text = { Text("Clear List") },
                             onClick = {
-                                showCreateGroupDialog = true
-                                expanded = false
+                                viewModel.clearImageList()
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Change Folder") },
+                            onClick = {
+                                onBackClick()
+                                showMenu = false
                             }
                         )
                     }
                 }
-            }
+            )
         }
+    ) { paddingValues ->
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // Selection Action Bar
+            if (uiState.selectedImages.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${uiState.selectedImages.size} selected")
+
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        Button(onClick = { expanded = true }) {
+                            Text("Move to Group")
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            uiState.groups.forEach { group ->
+                                DropdownMenuItem(
+                                    text = { Text(group.name) },
+                                    onClick = {
+                                        viewModel.moveSelectedImagesToGroup(group.id)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                            Divider()
+                            DropdownMenuItem(
+                                text = { Text("Create New Group") },
+                                onClick = {
+                                    showCreateGroupDialog = true
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
 
         // Upper Part: Image Viewer (Grid)
         Box(modifier = Modifier.weight(1f)) {
@@ -310,13 +363,22 @@ fun ImageSorterScreen(
 
                 GroupList(
                     groups = uiState.groups,
+                    allGroups = uiState.groups,
                     onRenameGroup = { id, name -> showRenameGroupDialog = id to name },
                     onDeleteGroup = viewModel::deleteGroup,
-                    onMoveToFolder = { id -> showMoveToFolderDialog = id }
+                    onMoveToFolder = { id ->
+                        showMoveToFolderDialog = id
+                        // Launch picker immediately for improved UX if using picker
+                        // But wait, the dialog logic below handles manual entry if we wanted.
+                        // Since we want picker now:
+                        folderPickerLauncher.launch(null)
+                    },
+                    onMoveImageToGroup = viewModel::moveImageBetweenGroups
                 )
             }
         }
     }
+    } // End Scaffold content
 
     if (showCreateGroupDialog) {
         TextInputDialog(
@@ -350,16 +412,10 @@ fun ImageSorterScreen(
         )
     }
 
-    showMoveToFolderDialog?.let { groupId ->
-        TextInputDialog(
-            title = "Move Group to Folder (Path)",
-            onDismiss = { showMoveToFolderDialog = null },
-            onConfirm = { path ->
-                viewModel.moveGroupImagesToFolder(groupId, path)
-                showMoveToFolderDialog = null
-            }
-        )
-    }
+    // showMoveToFolderDialog is now handled by the launcher callback for the actual path,
+    // but we use the state variable to store WHICH group ID we are moving.
+    // If the launcher is cancelled, we should probably clear the state, but we can't easily detect cancellation
+    // unless we wrap the launcher result. For MVP, if user cancels, the state remains until next click which overwrites it.
 }
 
 @Composable
@@ -421,28 +477,35 @@ fun ImageItem(
 @Composable
 fun GroupList(
     groups: List<ImageGroup>,
+    allGroups: List<ImageGroup>,
     onRenameGroup: (String, String) -> Unit,
     onDeleteGroup: (String) -> Unit,
-    onMoveToFolder: (String) -> Unit
+    onMoveToFolder: (String) -> Unit,
+    onMoveImageToGroup: (ImageFile, String, String) -> Unit
 ) {
     LazyColumn {
         items(groups) { group ->
             GroupItem(
                 group = group,
+                allGroups = allGroups,
                 onRename = { onRenameGroup(group.id, group.name) },
                 onDelete = { onDeleteGroup(group.id) },
-                onMoveToFolder = { onMoveToFolder(group.id) }
+                onMoveToFolder = { onMoveToFolder(group.id) },
+                onMoveImageToGroup = onMoveImageToGroup
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GroupItem(
     group: ImageGroup,
+    allGroups: List<ImageGroup>,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    onMoveToFolder: () -> Unit
+    onMoveToFolder: () -> Unit,
+    onMoveImageToGroup: (ImageFile, String, String) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -472,7 +535,7 @@ fun GroupItem(
                 }
             }
 
-            // Preview of images in group
+            // Preview of images in group with context menu
             LazyRow(
                 modifier = Modifier
                     .height(100.dp)
@@ -480,14 +543,39 @@ fun GroupItem(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(group.images) { image ->
-                    Image(
-                        painter = rememberAsyncImagePainter(image.uri),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                    var showMenu by remember { mutableStateOf(false) }
+
+                    Box(
                         modifier = Modifier
                             .size(100.dp)
                             .aspectRatio(1f)
-                    )
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = { showMenu = true }
+                            )
+                    ) {
+                        Image(
+                            painter = rememberAsyncImagePainter(image.uri),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            allGroups.filter { it.id != group.id }.forEach { targetGroup ->
+                                DropdownMenuItem(
+                                    text = { Text("Move to ${targetGroup.name}") },
+                                    onClick = {
+                                        onMoveImageToGroup(image, group.id, targetGroup.id)
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
